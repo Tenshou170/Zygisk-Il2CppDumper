@@ -12,6 +12,7 @@
 #include <sstream>
 #include <fstream>
 #include <unistd.h>
+#include <sys/stat.h>
 #include "xdl.h"
 #include "log.h"
 #include "il2cpp-tabledefs.h"
@@ -322,7 +323,7 @@ std::string dump_type(const Il2CppType *type) {
     return outPut.str();
 }
 
-void il2cpp_api_init(void *handle) {
+bool il2cpp_api_init(void *handle) {
     LOGI("il2cpp_handle: %p", handle);
     init_il2cpp_api(handle);
     if (il2cpp_domain_get_assemblies) {
@@ -333,14 +334,24 @@ void il2cpp_api_init(void *handle) {
         LOGI("il2cpp_base: %" PRIx64"", il2cpp_base);
     } else {
         LOGE("Failed to initialize il2cpp api.");
-        return;
+        return false;
     }
-    while (!il2cpp_is_vm_thread(nullptr)) {
-        LOGI("Waiting for il2cpp_init...");
-        sleep(1);
+    if (il2cpp_is_vm_thread) {
+        while (!il2cpp_is_vm_thread(nullptr)) {
+            LOGI("Waiting for il2cpp_init...");
+            sleep(1);
+        }
+    } else {
+        LOGI("il2cpp_is_vm_thread symbol not found, sleeping 3s as fallback...");
+        sleep(3);
     }
-    auto domain = il2cpp_domain_get();
-    il2cpp_thread_attach(domain);
+    if (il2cpp_domain_get && il2cpp_thread_attach) {
+        auto domain = il2cpp_domain_get();
+        il2cpp_thread_attach(domain);
+        return true;
+    }
+    LOGE("il2cpp_domain_get or il2cpp_thread_attach missing");
+    return false;
 }
 
 void il2cpp_dump(const char *outDir) {
@@ -417,13 +428,23 @@ void il2cpp_dump(const char *outDir) {
         }
     }
     LOGI("write dump file");
-    auto outPath = std::string(outDir).append("/files/dump.cs");
+    auto filesDir = std::string(outDir) + "/files";
+    mkdir(filesDir.c_str(), 0777);
+    auto outPath = filesDir + "/dump.cs";
     std::ofstream outStream(outPath);
-    outStream << imageOutput.str();
-    auto count = outPuts.size();
-    for (int i = 0; i < count; ++i) {
-        outStream << outPuts[i];
+    if (!outStream.is_open()) {
+        outPath = std::string(outDir) + "/dump.cs";
+        outStream.open(outPath);
     }
-    outStream.close();
-    LOGI("dump done!");
+    if (outStream.is_open()) {
+        outStream << imageOutput.str();
+        auto count = outPuts.size();
+        for (size_t i = 0; i < count; ++i) {
+            outStream << outPuts[i];
+        }
+        outStream.close();
+        LOGI("dump done to %s!", outPath.c_str());
+    } else {
+        LOGE("Failed to open dump output path: %s", outPath.c_str());
+    }
 }

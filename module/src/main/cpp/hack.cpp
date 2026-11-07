@@ -19,19 +19,22 @@
 
 void hack_start(const char *game_data_dir) {
     bool load = false;
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 25; i++) {
         void *handle = xdl_open("libil2cpp.so", 0);
         if (handle) {
-            load = true;
-            il2cpp_api_init(handle);
-            il2cpp_dump(game_data_dir);
-            break;
-        } else {
-            sleep(1);
+            LOGI("Found libil2cpp.so on attempt %d", i + 1);
+            if (il2cpp_api_init(handle)) {
+                load = true;
+                il2cpp_dump(game_data_dir);
+                break;
+            } else {
+                LOGW("il2cpp_api_init returned false, retrying...");
+            }
         }
+        sleep(1);
     }
     if (!load) {
-        LOGI("libil2cpp.so not found in thread %d", gettid());
+        LOGE("libil2cpp.so dump failed or timed out in thread %d", gettid());
     }
 }
 
@@ -145,7 +148,12 @@ bool NativeBridgeLoad(const char *game_data_dir, int api_level, void *data, size
     if (!nb) {
         auto native_bridge = GetNativeBridgeLibrary();
         LOGI("native bridge: %s", native_bridge.data());
-        nb = dlopen(native_bridge.data(), RTLD_NOW);
+        if (!native_bridge.empty() && native_bridge != "0") {
+            nb = dlopen(native_bridge.data(), RTLD_NOW);
+        }
+    }
+    if (!nb) {
+        nb = dlopen("libndk_translation.so", RTLD_NOW);
     }
     if (nb) {
         LOGI("nb %p", nb);
